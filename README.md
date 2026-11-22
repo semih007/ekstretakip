@@ -1,3 +1,5 @@
+#yükleyerek olabilecek bütün riskleri kabul etmiş sayılırsınız. sorumluluk kabul etmiyorum.
+
 # Ekstre Takip
 
 Bugün yapacağınız bir harcama hangi kartın ekstresine daha geç yansır? Ekstre Takip, kaydettiğiniz kredi kartlarının kesim tarihlerini karşılaştırır ve bir sonraki kesimine en çok gün kalan kartı ana ekranda gösterir. Aynı ekrandaki takvimden yaklaşan ekstre ve son ödeme günlerinizi takip edebilirsiniz.
