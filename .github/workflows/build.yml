@@ -1,0 +1,83 @@
+name: Android
+
+on:
+  push:
+    branches: ['**']
+    tags: ['v*']
+  pull_request:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Android SDK
+        shell: bash
+        run: |
+          set +o pipefail
+          yes | sdkmanager --licenses > /dev/null
+          set -o pipefail
+          packages=$(sdkmanager --list --channel=0)
+          platform=$(awk '$1 == "platforms;android-37.0" { print $1; exit }' <<< "$packages")
+          if [[ -z "$platform" ]]; then
+            platform=$(awk '$1 == "platforms;android-37" { print $1; exit }' <<< "$packages")
+          fi
+          test -n "$platform"
+          sdkmanager "$platform"
+      - name: Birim testleri
+        run: |
+          chmod +x gradlew
+          ./gradlew testDebugUnitTest
+      - name: İmza anahtarını hazırla
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+        run: |
+          if [[ -n "$KEYSTORE_BASE64" && -n "$KEYSTORE_PASSWORD" && -n "$KEY_ALIAS" && -n "$KEY_PASSWORD" ]]; then
+            umask 077
+            printf '%s' "$KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/release.jks"
+            echo "KEYSTORE_FILE=$RUNNER_TEMP/release.jks" >> "$GITHUB_ENV"
+          fi
+      - name: Release APK
+        env:
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+        run: ./gradlew assembleRelease
+      - name: APK izinlerini denetle
+        shell: bash
+        run: |
+          aapt=$(find "$ANDROID_HOME/build-tools" -name aapt2 -type f | sort -V | tail -1)
+          dump=$("$aapt" dump permissions app/build/outputs/apk/release/*.apk)
+          printf '%s\n' "$dump"
+          allowed='com\.semih007\.ekstretakip\.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION'
+          while IFS= read -r line; do
+            case "$line" in
+              'package: com.semih007.ekstretakip'|'') continue ;;
+            esac
+            if ! grep -Eq "^(permission|uses-permission): (name='$allowed'|$allowed)([[:space:]].*)?$" <<< "$line"; then
+              echo "::error::Beklenmeyen izin kaydı: $line"
+              exit 1
+            fi
+          done <<< "$dump"
+          grep -Fxq 'package: com.semih007.ekstretakip' <<< "$dump"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ekstre-takip-apk
+          path: app/build/outputs/apk/release/*.apk
+          if-no-files-found: error
+      - uses: softprops/action-gh-release@v2
+        if: startsWith(github.ref, 'refs/tags/v')
+        with:
+          files: app/build/outputs/apk/release/*.apk
+          fail_on_unmatched_files: true
