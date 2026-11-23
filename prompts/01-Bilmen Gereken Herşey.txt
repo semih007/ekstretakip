@@ -1,0 +1,217 @@
+# GÖREV
+Aşağıdaki belge, "Ekstre Takip" adlı bir Android uygulamasının TAM ve KESİN şartnamesidir. Bu şartnameye birebir uy.
+
+## ÇALIŞMA KURALLARI (en önemli bölüm)
+1. Şartnamede yazmayan hiçbir şeyi ekleme: ekstra özellik, ekran, kütüphane, dosya, animasyon, ayar, bildirim, widget, çoklu dil, erişilebilirlik süslemesi yok.
+2. Şartnamede yazan hiçbir şeyi atlama, değiştirme veya "daha iyi" bir alternatifle değiştirme (dil, kütüphane, mimari, isim, metin dahil).
+3. Belirsizlik olursa en basit yorumu seç, soru sorma, README'deki "Varsayımlar" bölümüne bir satır yaz.
+4. Derleme hatası çıkarsa yalnızca hatayı gideren minimum değişikliği yap; davranışı ve şartnameyi değiştirme.
+5. Plan modundaysan önce bu belgeyi madde madde bir uygulama planına dök, onay al, sonra uygula.
+6. Bitince şunları çalıştır ve sonucu raporla: `./gradlew testDebugUnitTest assembleRelease`
+
+## 1. ÜRÜN TANIMI
+Kredi kartı ekstre kesim günlerini kaydeden ve bugün yapılacak bir harcama için 30 günlük faizsiz süreyi en verimli kullandıracak kartın ADINI gösteren, tamamen çevrimdışı ve izinsiz bir uygulama. Arayüz dili Türkçe (sabit, çoklu dil yok).
+
+## 2. KİMLİK
+- Uygulama adı: Ekstre Takip
+- applicationId ve namespace: com.ekstretakip
+- versionCode 1, versionName "1.0.0"
+- minSdk 26, compileSdk 37, targetSdk 37 (Android 17, API 37, güncel kararlı sürüm)
+
+## 3. TEKNOLOJİ (sabit)
+- Dil: Kotlin. Arayüz: Jetpack Compose + Material 3 (yalnızca Compose, XML layout yok). Tek Activity.
+- Derleme: Android Gradle Plugin 9.1.1, Gradle 9.3.1 (olmazsa AGP 9.1.1'in gerektirdiği en düşük 9.3.x), Kotlin 2.3.21, Compose Compiler eklentisi `org.jetbrains.kotlin.plugin.compose` 2.3.21.
+- AGP 9 yerleşik Kotlin desteğini kullan; `org.jetbrains.kotlin.android` eklentisini UYGULAMA.
+- Gradle: Kotlin DSL + `gradle/libs.versions.toml`. Gradle wrapper repoda bulunsun (gradlew, gradlew.bat, gradle/wrapper/*).
+- Java/Kotlin hedef uyumluluğu: 17. CI JDK: Temurin 21.
+- Compose BOM: `androidx.compose:compose-bom:2026.06.00`
+- BAĞIMLILIKLAR (yalnızca bunlar, başka hiçbir şey yok):
+  - implementation: androidx.compose.ui:ui, androidx.compose.foundation:foundation, androidx.compose.material3:material3, androidx.compose.material:material-icons-core (hepsi BOM'dan), androidx.activity:activity-compose (Google Maven'daki en güncel KARARLI sürüm; alpha/beta/rc yok)
+  - testImplementation: junit:junit:4.13.2
+- Veri saklama: SharedPreferences (adı "cards_prefs", anahtar "cards_json"), kart listesi `org.json` (Android'in kendi sınıfı) ile JSON dizisi olarak saklanır. Room, DataStore, KSP, kapt, serialization eklentisi, Hilt, navigation-compose KULLANMA.
+- Mimari: tek `AndroidViewModel` + Compose `mutableStateOf` durumu. Gezinme: ViewModel'deki `screen` durumu + `BackHandler` (navigation kütüphanesi yok).
+
+## 4. DOSYA AĞACI (yalnızca bunlar oluşturulacak)
+```
+settings.gradle.kts
+build.gradle.kts
+gradle.properties
+gradle/libs.versions.toml
+gradle/wrapper/*  (+ gradlew, gradlew.bat)
+.gitignore                (standart Android + .gradle, build, local.properties, *.jks, *.keystore)
+README.md
+.github/workflows/build.yml
+app/build.gradle.kts
+app/proguard-rules.pro    (yalnızca "# kural yok" yorumu)
+app/src/main/AndroidManifest.xml
+app/src/main/res/values/strings.xml
+app/src/main/res/values/about_texts.xml
+app/src/main/res/values/colors.xml
+app/src/main/res/values/themes.xml
+app/src/main/res/values-night/themes.xml
+app/src/main/res/xml/data_extraction_rules.xml
+app/src/main/res/drawable/ic_launcher_foreground.xml
+app/src/main/res/mipmap-anydpi/ic_launcher.xml
+app/src/main/res/mipmap-anydpi/ic_launcher_round.xml
+app/src/main/java/com/ekstretakip/MainActivity.kt
+app/src/main/java/com/ekstretakip/model/Card.kt
+app/src/main/java/com/ekstretakip/logic/CardSelector.kt
+app/src/main/java/com/ekstretakip/data/CardRepository.kt
+app/src/main/java/com/ekstretakip/ui/AppViewModel.kt
+app/src/main/java/com/ekstretakip/ui/AppRoot.kt
+app/src/main/java/com/ekstretakip/ui/HomeScreen.kt
+app/src/main/java/com/ekstretakip/ui/CardsScreen.kt
+app/src/main/java/com/ekstretakip/ui/CardFormScreen.kt
+app/src/main/java/com/ekstretakip/ui/AboutScreen.kt
+app/src/main/java/com/ekstretakip/ui/theme/Theme.kt
+app/src/test/java/com/ekstretakip/logic/CardSelectorTest.kt
+```
+
+## 5. İŞ MANTIĞI (CardSelector.kt, saf Kotlin, Android bağımlılığı yok)
+Model: `data class Card(val id: String, val name: String, val statementDay: Int)` (id = UUID metni, statementDay 1..31).
+
+Kural: Ekstre kesim günü X olan kartta ayın X. günü yapılan harcama MEVCUT dönemdedir; yeni dönem X+1. gün başlar.
+
+Kesin algoritma:
+```kotlin
+fun clampToMonth(ym: YearMonth, day: Int): LocalDate =
+    ym.atDay(minOf(day, ym.lengthOfMonth()))
+
+fun nextStatementDate(today: LocalDate, day: Int): LocalDate {
+    val thisMonth = clampToMonth(YearMonth.from(today), day)
+    return if (!thisMonth.isBefore(today)) thisMonth
+           else clampToMonth(YearMonth.from(today).plusMonths(1), day)
+}
+
+fun daysUntilStatement(today: LocalDate, day: Int): Long =
+    ChronoUnit.DAYS.between(today, nextStatementDate(today, day))
+
+fun pickBest(cards: List<Card>, today: LocalDate): Card? {
+    var best: Card? = null
+    var bestDays = -1L
+    for (c in cards) {            // eklenme sırasıyla gez
+        val d = daysUntilStatement(today, c.statementDay)
+        if (d > bestDays) { best = c; bestDays = d }   // yalnızca KESİN büyükse değiştir (eşitlikte ilk eklenen kalır)
+    }
+    return best
+}
+```
+Açıklama: en uygun kart, bir sonraki ekstre kesim tarihi bugünden en uzak olan karttır. Ay sonu: kesim günü o ayda yoksa (örn. 31, Şubat) kesim ayın son günüdür. `object CardSelector` içinde bu 4 fonksiyonu yaz. "Bugün" = `LocalDate.now()` (cihaz yerel tarihi).
+
+## 6. VERİ KATMANI (CardRepository.kt)
+- `class CardRepository(context: Context)`: `load(): List<Card>` ve `save(cards: List<Card>)`.
+- JSON biçimi: `[{"id":"...","name":"...","day":16}]`. Okuma hatasında boş liste dön.
+- Yazma `apply()` ile.
+
+## 7. DURUM (AppViewModel.kt)
+- `var cards by mutableStateOf(listOf<Card>())` (açılışta repository'den yüklenir; eklenme sırası korunur)
+- `var today by mutableStateOf(LocalDate.now())` ve `fun refreshToday()`
+- `sealed interface Screen { object Home; object Cards; data class CardForm(val cardId: String?); object About }` ve `var screen by mutableStateOf<Screen>(Screen.Home)`
+- `fun addCard(name, day)`, `fun updateCard(id, name, day)` (listedeki sırasını korur), `fun deleteCard(id)`. Her değişiklikte `save` çağrılır.
+- `fun nameExists(name: String, exceptId: String?): Boolean` (trim + büyük/küçük harf duyarsız karşılaştırma).
+- Geri davranışı (`BackHandler`, Home dışındaki ekranlarda): CardForm → Cards, Cards → Home, About → Home.
+
+## 8. EKRANLAR
+Genel: `enableEdgeToEdge()` kullan, Scaffold iç boşluklarına uy, ekran yönü kilitlenmez.
+
+### 8.1 Ana ekran (HomeScreen)
+- Üst çubuk: başlıksız, saydam (`containerColor = Color.Transparent`), sağda tek bir `IconButton` (Icons.Default.MoreVert, contentDescription = "Menü"). Dokununca `DropdownMenu`: "Kartlarım" → Screen.Cards, "Hakkında" → Screen.About.
+- Gövde: ekranın tam ortasında yalnızca en uygun kartın ADI. Stil: `MaterialTheme.typography.displayMedium`, `FontWeight.Bold`, `TextAlign.Center`, yatay padding 24.dp, `maxLines = 3`, `TextOverflow.Ellipsis`.
+- Başka HİÇBİR öğe yok (tarih, gün sayısı, kesim günü, liste, buton, alt metin yok).
+- Kart yoksa gövdede tek istisna olarak `empty_hint` metni (`bodyLarge`, `onSurfaceVariant` rengi, ortalı).
+- En uygun kart: `CardSelector.pickBest(vm.cards, vm.today)`.
+
+### 8.2 Kartlarım ekranı (CardsScreen)
+- `TopAppBar`: başlık "Kartlarım", gezinme ikonu Icons.AutoMirrored.Filled.ArrowBack (contentDescription "Geri") → Home.
+- Sağ altta `FloatingActionButton` (Icons.Default.Add, contentDescription "Kart ekle") → `Screen.CardForm(null)`.
+- `LazyColumn`: her kart için `ListItem`: headlineContent = kart adı, supportingContent = "Kesim günü: N", trailingContent = `Row` içinde iki `IconButton` (Icons.Default.Edit "Düzenle", Icons.Default.Delete "Sil"). Satıra dokunmak da düzenlemeyi açar → `Screen.CardForm(card.id)`.
+- Silme: `AlertDialog` (başlık "Kart silinsin mi?", mesaj "“<ad>” kartı silinecek.", butonlar "Sil" ve "Vazgeç"). "Sil" → `vm.deleteCard`.
+- Liste boşsa ortada "Henüz kart eklenmedi." (`bodyLarge`).
+
+### 8.3 Kart formu (CardFormScreen) — ekleme ve düzenleme aynı ekran
+- Başlık: ekleme "Kart ekle", düzenleme "Kartı düzenle"; geri ikonu → Cards.
+- Alanlar (`OutlinedTextField`, tam genişlik, 16.dp boşlukla alt alta, ekran padding 16.dp):
+  1. "Kart adı": tek satır, en fazla 30 karakter.
+  2. "Ekstre kesim günü (1–31)": `KeyboardType.Number`, yalnızca rakam, en fazla 2 hane.
+- Düzenlemede alanlar mevcut değerlerle dolu gelir.
+- Altta tam genişlik "Kaydet" butonu. Doğrulama yalnızca "Kaydet"e basınca çalışır; alan değişince o alanın hatası temizlenir:
+  - Ad trim edilince boşsa: "Kart adı boş olamaz."
+  - `nameExists` doğruysa: "Bu isimde bir kart zaten var."
+  - Gün sayı değilse veya 1..31 dışındaysa: "Gün 1 ile 31 arasında olmalı."
+- Başarılı kaydetmede kaydet ve `Screen.Cards`'a dön. Kayıtlı ad trim edilmiş hâliyle saklanır.
+
+### 8.4 Hakkında (AboutScreen)
+- `TopAppBar`: "Hakkında" + geri ikonu → Home.
+- İçerik (16.dp padding, dikey kaydırılabilir): `@string/about_intro` metni (`bodyLarge`); altında "GitHub" etiketi (`labelLarge`) ve `@string/about_github_url` metni `SelectionContainer` içinde, düz metin (TIKLANABİLİR LİNK DEĞİL, tarayıcıya yönlendirme yok); en altta "Sürüm " + `BuildConfig.VERSION_NAME` (`bodySmall`).
+- Tanıtım metni ve GitHub adresi yalnızca `res/values/about_texts.xml` içinde tutulur:
+  `about_intro` = "TODO: Tanıtım metni buraya eklenecek."
+  `about_github_url` = "TODO: GitHub adresi buraya eklenecek."
+
+## 9. METİNLER (strings.xml; Türkçe)
+app_name "Ekstre Takip"; menu_desc "Menü"; menu_cards "Kartlarım"; menu_about "Hakkında"; back_desc "Geri"; empty_hint "Önce bir kart ekleyin"; cards_title "Kartlarım"; cards_empty "Henüz kart eklenmedi."; add_card "Kart ekle"; edit_card "Kartı düzenle"; edit_desc "Düzenle"; delete_desc "Sil"; statement_day_format "Kesim günü: %1$d"; field_name "Kart adı"; field_day "Ekstre kesim günü (1–31)"; save "Kaydet"; cancel "Vazgeç"; delete "Sil"; delete_title "Kart silinsin mi?"; delete_message "“%1$s” kartı silinecek."; err_name_empty "Kart adı boş olamaz."; err_name_duplicate "Bu isimde bir kart zaten var."; err_day_invalid "Gün 1 ile 31 arasında olmalı."; about_title "Hakkında"; about_github_label "GitHub"; about_version_format "Sürüm %1$s".
+
+## 10. TEMA (Theme.kt, `EkstreTakipTheme`)
+- Android 12+ (API 31+) cihazlarda `dynamicLightColorScheme/dynamicDarkColorScheme`, daha eskilerde statik şema: açık `lightColorScheme(primary = Color(0xFF1B5E75))`, koyu `darkColorScheme(primary = Color(0xFF8FD0EA))`. Açık/koyu, `isSystemInDarkTheme()` ile.
+- themes.xml: `values/` içinde `Theme.EkstreTakip` (parent `android:Theme.Material.Light.NoActionBar`), `values-night/` içinde aynı ad (parent `android:Theme.Material.NoActionBar`).
+- colors.xml: `ic_launcher_background` = #1B5E75
+
+## 11. İKON
+- `mipmap-anydpi/ic_launcher.xml` ve `ic_launcher_round.xml`: `<adaptive-icon>` (background = `@color/ic_launcher_background`, foreground = `@drawable/ic_launcher_foreground`, monochrome = `@drawable/ic_launcher_foreground`).
+- `drawable/ic_launcher_foreground.xml` (108dp vektör):
+```xml
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp" android:height="108dp"
+    android:viewportWidth="108" android:viewportHeight="108">
+    <path android:fillColor="#FFFFFF"
+        android:pathData="M34,40h40a6,6 0 0 1 6,6v20a6,6 0 0 1 -6,6h-40a6,6 0 0 1 -6,-6v-20a6,6 0 0 1 6,-6z"/>
+    <path android:fillColor="#1B5E75" android:pathData="M28,48h52v6h-52z"/>
+    <path android:fillColor="#1B5E75" android:pathData="M34,62h14v4h-14z"/>
+</vector>
+```
+
+## 12. GİZLİLİK VE İZİN KISITI (kesin)
+- Uygulama internete ve cihazdaki hiçbir kaynağa erişmez. Kendi kodunuzda hiçbir `<uses-permission>` olmasın (INTERNET dahil). Ağ, analitik, reklam, çökme raporlama, Firebase, Play Services KULLANMA.
+- AndroidManifest.xml: tek Activity (`MainActivity`, `exported="true"`, MAIN/LAUNCHER intent-filter), `android:allowBackup="false"`, `android:dataExtractionRules="@xml/data_extraction_rules"`, `android:fullBackupContent="false"`, `android:usesCleartextTraffic="false"`, `android:icon="@mipmap/ic_launcher"`, `android:roundIcon="@mipmap/ic_launcher_round"`, `android:label="@string/app_name"`, `android:theme="@style/Theme.EkstreTakip"`.
+- `res/xml/data_extraction_rules.xml`: `<data-extraction-rules>` içinde `<cloud-backup>` ve `<device-transfer>` bölümlerinin ikisinde de `root`, `file`, `database`, `sharedpref`, `external` domain'leri için `<exclude>` satırları.
+- İSTİSNA (kaldırma, izin listesine ekle): AndroidX'in kendiliğinden eklediği `com.ekstretakip.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION` uygulamanın kendi imza düzeyli iznidir ve dış erişim sağlamaz. Başka her izin yasak.
+- CI'da APK izin kontrolü: `aapt2 dump permissions` çıktısındaki izinlerden yukarıdaki izni çıkar; geriye bir şey kalırsa build BAŞARISIZ olsun.
+
+## 13. DERLEME AYARLARI (app/build.gradle.kts)
+- Eklentiler: `com.android.application`, `org.jetbrains.kotlin.plugin.compose`.
+- `buildFeatures { compose = true; buildConfig = true }`
+- release: `isMinifyEnabled = true`, `isShrinkResources = true`, `proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")`.
+- İmza: ortam değişkenleri `KEYSTORE_FILE`, `KEYSTORE_PASSWORD`, `KEY_ALIAS`, `KEY_PASSWORD` tanımlıysa release bu `signingConfig` ile imzalanır; değilse release debug imzasını kullanır (APK yine de kurulabilir olsun).
+- Test: `testOptions` varsayılan; JUnit 4.
+
+## 14. BİRİM TESTLER (CardSelectorTest.kt; tam olarak bunlar)
+Kartlar: önce eklenen A sonra B. Tarih yılı 2026.
+1. A(16), B(29), 2026-11-01..2026-11-30 her gün: gün 1–16 → B, gün 17–29 → A, gün 30 → B. Ayrıca 2026-12-31 → B.
+2. A(5), B(16), C(27) (bu sırayla eklendi), 2026-11-01..2026-11-30 ve 2026-12-31: gün 28–31 ve 1–5 → C, gün 6–16 → A, gün 17–27 → B.
+3. X(31), Y(15): 2026-11-15 → X, 2026-11-16 → Y, 2026-11-30 → Y, 2026-12-01 → X, 2027-02-28 → Y.
+4. `nextStatementDate`: (2028-02-29, 30) → 2028-02-29; (2027-02-28, 29) → 2027-02-28; (2027-03-01, 31) → 2027-03-31; (2026-12-20, 5) → 2027-01-05.
+5. Aynı kesim günlü iki kart: ilk eklenen seçilir.
+6. Boş liste → null. Tek kart → her tarihte o kart.
+
+## 15. GITHUB ACTIONS (.github/workflows/build.yml)
+- Tetikleyiciler: `push` (tüm dallar), `pull_request`, tag `v*`.
+- Tek job `build` (ubuntu-latest). `permissions: contents: write`.
+- Adımlar (sırayla):
+  1. `actions/checkout@v4`
+  2. `actions/setup-java@v4` (temurin, java-version 21)
+  3. `gradle/actions/setup-gradle@v4`
+  4. Android SDK: `yes | sdkmanager --licenses` ve `sdkmanager "platforms;android-37.0"` (paket adı bulunamazsa `sdkmanager --list | grep "platforms;android-37"` ile kararlı olanı seç)
+  5. `./gradlew testDebugUnitTest`
+  6. Release imzası için: `KEYSTORE_BASE64`, `KEYSTORE_PASSWORD`, `KEY_ALIAS`, `KEY_PASSWORD` secret'ları doluysa keystore'u `$RUNNER_TEMP` içine çöz ve `KEYSTORE_FILE` ortam değişkenini ayarla; boşsa atla.
+  7. `./gradlew assembleRelease`
+  8. İzin kontrolü (bölüm 12'deki aapt2 yöntemi; build-tools yolunu `$ANDROID_HOME/build-tools/*` içinden bul).
+  9. `actions/upload-artifact@v4` ile `app/build/outputs/apk/release/*.apk` yükle (ad: `ekstre-takip-apk`).
+  10. Yalnızca tag `v*` ise: `softprops/action-gh-release@v2` ile APK'yı release'e ekle.
+
+## 16. README.md (kısa, Türkçe)
+Bölümler: Tanıtım (3 cümle), Kart seçim mantığı (bölüm 5'in kısa anlatımı + A(16)/B(29) örneği), Derleme (yerel komut ve CI), İmzalama secret'ları (4 secret adı ve keystore'u base64'e çevirme komutu), İzin politikası (bölüm 12 özeti), Kullanılan sürümler, Varsayımlar.
+
+## 17. TESLİM ÖLÇÜTÜ
+- Dosya ağacı bölüm 4 ile birebir aynı, fazladan dosya yok.
+- `./gradlew testDebugUnitTest assembleRelease` başarılı.
+- Ana ekranda yalnızca kart adı (veya kart yoksa `empty_hint`) ve köşede ⋮ menüsü görünür.
+- Birleştirilmiş manifestte, bölüm 12'deki istisna dışında izin yok.

@@ -1,0 +1,42 @@
+# DEĞİŞİKLİK TALEBİ #1-DÜZELTME
+
+Önceki değişiklik talebindeki kart seçim kuralı YANLIŞTI. Aşağıdaki düzeltmeyi uygula. Bu belgede yazmayan hiçbir şeyi değiştirme. Kural: kart seçimi EKSTRE KESİM tarihine göre yapılır; son ödeme tarihi seçimi etkilemez, yalnızca takvimde (işaret) ve kartlar listesinde bilgi olarak kullanılır.
+
+## 1. logic/CardSelector.kt
+`daysUntilDue` fonksiyonunu KALDIR, yerine şunu ekle:
+```kotlin
+// Bugünden, bugünden itibaren gelen ilk (ötelenmiş) ekstre kesim tarihine kalan gün.
+fun daysUntilStatement(card: Card, today: LocalDate): Long =
+    ChronoUnit.DAYS.between(today, nextCycle(card, today).statement)
+```
+`pickBest` içinde `daysUntilDue` yerine `daysUntilStatement` kullan. Gövdenin geri kalanı aynı kalır:
+```kotlin
+fun pickBest(cards: List<Card>, today: LocalDate): Card? {
+    var best: Card? = null
+    var bestDays = -1L
+    for (c in cards) {
+        val d = daysUntilStatement(c, today)
+        if (d > bestDays) { best = c; bestDays = d }   // yalnızca KESİN büyükse değiştir (eşitlikte ilk eklenen kalır)
+    }
+    return best
+}
+```
+Açıklama yorumu: "En uygun kart: bugünkü harcamanın düşeceği ekstre kesim tarihi (ötelenmişse ötelenmiş hâli) bugünden en uzak olan kart."
+`cycleFor`, `nextCycle`, `markers`, `Cycle`, `CalendarMarkers` OLDUĞU GİBİ kalır (son ödeme hesabı ve takvim işaretleri değişmez). Projede başka yerde `daysUntilDue` kullanılıyorsa `daysUntilStatement`'e çevir.
+
+## 2. Birim testler (CardSelectorTest.kt)
+- Önceki talepteki 10. ve 11. test maddelerini bu belgedeki 10' ve 11' ile DEĞİŞTİR.
+- Önceki talepteki 14. maddeyi (varsa) SİL.
+- Diğer tüm testler aynı kalır (12 numaralı A(16)/B(29) senaryosu değişmeden geçmelidir).
+
+10'. A(day 20, offset 1, adjust false), B(day 12, offset 60, adjust false), today 2026-11-05 → A (kesime kalan gün: A için 15, B için 7; son ödeme sürelerinin etkisi yok).
+
+11'. Aynı gün (16) ve farklı offset'li iki kart, adjust false: A offset 10, B offset 20 → her tarihte listede ilk olan seçilir (A). Kartların listeleme sırası ters çevrilince (B önce) her tarihte B seçilir.
+
+15 (yeni). A(day 14, offset 10, adjust true), B(day 15, offset 10, adjust false), today 2026-11-14 (Cumartesi) → A (A'nın ötelenmiş kesimi 2026-11-16 = 2 gün; B'nin kesimi 2026-11-15 = 1 gün). Aynı kartlarda A'nın adjust'ı false olsaydı sonuç B olurdu; bunu da ikinci bir assertion olarak ekle.
+
+## 3. README.md
+"Kart seçim mantığı" bölümünü şu şekilde düzelt: en uygun kart, bugünden sonraki ilk (hafta sonu/resmî tatil öteleme açıksa ötelenmiş) ekstre kesim tarihi bugünden en uzak olan karttır; eşitlikte ilk eklenen kalır. Son ödeme tarihi (ötelenmiş kesim tarihi + girilen gün sayısı, gerekirse ötelenmiş) seçimi etkilemez; yalnızca takvimde ve kart listesinde gösterilir.
+
+## 4. Teslim ölçütü
+`./gradlew testDebugUnitTest` başarılı (ağ/SDK yoksa atla ve belirt). Başka dosyada değişiklik yok.
