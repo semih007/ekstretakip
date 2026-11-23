@@ -1,0 +1,133 @@
+# DEĞİŞİKLİK TALEBİ #2 (mevcut "Ekstre Takip" projesi üzerinde)
+
+Bu belge mevcut projeye yapılacak KESİN bir değişiklik şartnamesidir. Yalnızca burada yazanları uygula. Bu talebin daha eski bir sürümü kısmen uygulanmışsa, aşağıdakiyle çelişen kısımları (eski `isTriggered`, `isBusinessDay`, `shift`, `firstBusinessDayOnOrAfter` ve varsa tek anahtarlı sürümün kodu) KALDIR ve bu belgedeki hâlleriyle DEĞİŞTİR.
+
+## KURALLAR
+1. Bu belgede yazmayan hiçbir şeyi ekleme veya değiştirme. İzin kısıtı (hiç izin yok, internet yok), bağımlılık listesi (yeni kütüphane EKLEME), tema, ikon, workflow, Hakkında ekranı, kart seçimi (ötelenmiş ekstre kesim tarihine göre) ve takvim görünümü olduğu gibi kalır.
+2. Belgedeki hiçbir maddeyi atlama veya başka yöntemle değiştirme. Belirsizlikte en basit yorumu seç ve README'deki "Varsayımlar" bölümüne bir satır yaz; soru sorma.
+3. Derleme hatasında yalnızca hatayı gideren minimum değişikliği yap.
+4. Bitince `./gradlew testDebugUnitTest` çalıştır ve sonucu raporla (ağ/SDK yoksa atla ve belirt).
+
+## 1. AMAÇ VE KURAL
+Her karta, tek "ötele" anahtarı yerine ÜÇ bağımsız anahtar: hafta sonu, tam gün resmî tatil, yarım gün (öğleden sonra) tatil. Anahtarlar kart bazındadır ve hem ekstre kesim tarihine hem son ödeme tarihine uygulanır.
+
+Öteleme kuralı (gün gün kontrol):
+- Tarih d alınır. d "engelli" ise ertesi güne geçilir ve AYNI kontrol tekrarlanır; engelli olmayan ilk günde durulur (d engelli değilse d aynen kalır).
+- Bir gün "engelli" sayılır: (hafta sonu anahtarı AÇIK ve gün Cumartesi/Pazar) VEYA (resmî tatil anahtarı AÇIK ve gün tam gün resmî tatil) VEYA (yarım gün anahtarı AÇIK ve gün yarım gün tatil). Anahtarı KAPALI olan türün günü engelli sayılmaz.
+Örnekler: Cuma'ya denk gelen tatil, hafta sonu anahtarı kapalıysa Cumartesi'de durur; açıksa Cumartesi ve Pazar atlanıp Pazartesiye gider. Pazartesi tam gün tatilse ve resmî tatil anahtarı açıksa Salıya gider, kapalıysa Pazartesi'de durur. Pazartesi yarım günse yarım gün anahtarına bakılır.
+
+## 2. VERİ MODELİ (model/Card.kt) — `adjustForNonBusinessDays` KALDIRILIR
+```kotlin
+data class Card(
+    val id: String,
+    val name: String,
+    val statementDay: Int,          // 1..31
+    val dueOffsetDays: Int,         // 1..60
+    val shiftOnWeekend: Boolean,    // hafta sonu engelli sayılsın mı
+    val shiftOnHoliday: Boolean,    // tam gün resmî tatil engelli sayılsın mı
+    val shiftOnHalfDay: Boolean     // yarım gün tatil engelli sayılsın mı
+)
+```
+Projede `adjustForNonBusinessDays` kullanılan her yeri yeni üç alana çevir; kodda hiçbir yerde `adjustForNonBusinessDays` ifadesi kalmasın.
+
+## 3. CardRepository (JSON)
+- Yeni anahtarlar: `"wk"` (hafta sonu), `"hol"` (resmî tatil), `"half"` (yarım gün). Yazarken üçünü de yaz; eski `"adjust"` anahtarını artık YAZMA.
+- Okurken geçiş: üç yeni anahtardan biri varsa onları kullan, eksik olanı false say. Hiçbiri yoksa ve eski `"adjust"` varsa: `wk = hol = adjust`, `half = false`. Hiçbiri yoksa üçü de false.
+
+## 4. logic/TurkishHolidays.kt (dosyayı bu içerikle DEĞİŞTİR)
+```kotlin
+object TurkishHolidays {
+    // Tam gün resmî tatiller (ay, gün): 1 Ocak, 23 Nisan, 1 Mayıs, 19 Mayıs, 15 Temmuz, 30 Ağustos, 29 Ekim
+    private val fullDay = setOf(1 to 1, 4 to 23, 5 to 1, 5 to 19, 7 to 15, 8 to 30, 10 to 29)
+    // Yarım gün (öğleden sonra) tatiller (ay, gün): 28 Ekim
+    private val halfDay = setOf(10 to 28)
+
+    fun isHoliday(d: LocalDate): Boolean = (d.monthValue to d.dayOfMonth) in fullDay
+    fun isHalfDay(d: LocalDate): Boolean = (d.monthValue to d.dayOfMonth) in halfDay
+    fun isWeekend(d: LocalDate): Boolean =
+        d.dayOfWeek == DayOfWeek.SATURDAY || d.dayOfWeek == DayOfWeek.SUNDAY
+
+    // Takvim renklendirmesi için (DEĞİŞMEDİ): hafta sonu veya tam gün resmî tatil.
+    fun isNonBusinessDay(d: LocalDate): Boolean = isWeekend(d) || isHoliday(d)
+
+    // Kartın AÇIK anahtarlarına göre bu gün engelli mi?
+    fun isBlocked(d: LocalDate, weekend: Boolean, holiday: Boolean, halfDay: Boolean): Boolean =
+        (weekend && isWeekend(d)) || (holiday && isHoliday(d)) || (halfDay && isHalfDay(d))
+
+    // d dahil, engelli olmayan ilk gün (gün gün kontrol). Üç anahtar da kapalıysa d'nin kendisi.
+    fun firstOpenDayOnOrAfter(d: LocalDate, weekend: Boolean, holiday: Boolean, halfDay: Boolean): LocalDate {
+        var x = d
+        while (isBlocked(x, weekend, holiday, halfDay)) x = x.plusDays(1)
+        return x
+    }
+}
+```
+Eski `firstBusinessDayOnOrAfter`, `isTriggered`, `isBusinessDay`, `shift` kodda KALMASIN.
+
+## 5. logic/CardSelector.kt — yalnızca `roll` ve `cycleFor` DEĞİŞİR
+```kotlin
+private fun roll(date: LocalDate, card: Card): LocalDate =
+    TurkishHolidays.firstOpenDayOnOrAfter(date, card.shiftOnWeekend, card.shiftOnHoliday, card.shiftOnHalfDay)
+
+fun cycleFor(card: Card, ym: YearMonth): Cycle {
+    val statement = roll(clampToMonth(ym, card.statementDay), card)
+    val due = roll(statement.plusDays(card.dueOffsetDays.toLong()), card)
+    return Cycle(statement, due)
+}
+```
+Kural: son ödeme = ÖTELENMİŞ kesim tarihi + girilen gün sayısı; sonra aynı kartın anahtarlarıyla ötelenir. `nextCycle`, `daysUntilStatement`, `pickBest`, `markers` DEĞİŞMEZ (yalnızca varsa eski `roll(..., Boolean)` çağrılarını yeni imzaya çevir).
+
+## 6. ViewModel
+`addCard(name: String, day: Int, due: Int, weekend: Boolean, holiday: Boolean, halfDay: Boolean)` ve `updateCard(id: String, name: String, day: Int, due: Int, weekend: Boolean, holiday: Boolean, halfDay: Boolean)`. Diğer davranış aynı.
+
+## 7. KART FORMU (ui/CardFormScreen.kt)
+Tek öteleme anahtarı satırını KALDIR; yerine, son ödeme alanının altına şu ÜÇ satırı (bu sırayla) koy. Her satır: solda iki satırlı metin (başlık normal, altında `bodySmall` `onSurfaceVariant` açıklama), sağda `Switch`; satırlar arası 8.dp.
+1. `switch_weekend_title` / `switch_weekend_desc`
+2. `switch_holiday_title` / `switch_holiday_desc`
+3. `switch_half_title` / `switch_half_desc`
+
+Varsayılanlar (yeni kart): hafta sonu AÇIK, resmî tatil AÇIK, yarım gün KAPALI. Düzenlemede kayıtlı değerler yüklenir. Kaydet: üç değer `addCard` / `updateCard`'a geçilir.
+
+## 8. strings.xml
+Kaldır: `switch_adjust_title`, `switch_adjust_desc`. Ekle:
+```xml
+<string name="switch_weekend_title">Hafta sonu ötelemesi</string>
+<string name="switch_weekend_desc">Tarih Cumartesi veya Pazar\'a denk gelirse ileri ötelenir.</string>
+<string name="switch_holiday_title">Resmî tatil ötelemesi</string>
+<string name="switch_holiday_desc">Tarih tam gün resmî tatile (1 Ocak, 23 Nisan, 1 Mayıs, 19 Mayıs, 15 Temmuz, 30 Ağustos, 29 Ekim) denk gelirse ileri ötelenir.</string>
+<string name="switch_half_title">Yarım gün tatil ötelemesi</string>
+<string name="switch_half_desc">Tarih öğleden sonra tatil olan yarım güne (28 Ekim) denk gelirse ileri ötelenir.</string>
+```
+(strings.xml'de apostrof `\'` ile kaçırılır.)
+
+## 9. BİRİM TESTLER
+Mevcut tüm testleri yeni `Card` yapıcısına uyarlarken şu eşlemeyi kullan (beklenen değerler DEĞİŞMEZ): eski `adjust = true` → `shiftOnWeekend = true, shiftOnHoliday = true, shiftOnHalfDay = false`; eski `adjust = false` → üçü de false. Eski `firstBusinessDayOnOrAfter`/`shift` testleri varsa aşağıdaki 16–17 ile DEĞİŞTİR.
+
+Kısaltma: (W,H,Y) = (hafta sonu, resmî tatil, yarım gün) anahtarları. `cycleFor` testlerinde kesim gününü ve ayı belirtilen ym ile ver.
+
+CardSelectorTest — yeni:
+1. day 7, ym 2026-11 (7 Kasım Cumartesi): (false,true,true) → statement 2026-11-07 (kaymaz). (true,true,true) → 2026-11-09.
+2. day 14, ym 2026-11: (true,false,false) → statement 2026-11-16; (false,true,false) → 2026-11-14.
+3. day 28, ym 2026-10 (28 Ekim Çarşamba, yarım gün): (false,false,false) → 2026-10-28; (false,true,false) → 2026-10-28; (false,false,true) → 2026-10-29 (29 tam gün tatil ama resmî tatil anahtarı kapalı); (false,true,true) → 2026-10-30.
+4. day 29, ym 2027-10 (29 Ekim 2027 Cuma, tam gün tatil): (false,true,false) → statement 2027-10-30 (Cumartesi, hafta sonu anahtarı kapalı); (true,true,false) → 2027-11-01.
+5. day 18, ym 2025-05 (18 Mayıs 2025 Pazar, ertesi gün 19 Mayıs Pazartesi tam gün tatil): (false,false,false) → statement 2025-05-18; (true,false,false) → 2025-05-19 (resmî tatil anahtarı kapalı); (true,true,false) → 2025-05-20.
+6. day 16, offset 12, ym 2026-11 (nominal son ödeme 28 Kasım Cumartesi): (false,true,true) → due 2026-11-28; (true,false,false) → due 2026-11-30.
+7. day 19, offset 9, ym 2026-10 (nominal son ödeme 28 Ekim yarım gün): (true,true,true) → statement 2026-10-19, due 2026-10-30; (false,false,true) → due 2026-10-29; (false,false,false) → due 2026-10-28.
+8. `pickBest`: A(day 7, offset 10, true,true,true), B(day 8, offset 10, false,false,false), today 2026-11-07 → A. A'nın anahtarları (false,false,false) olunca → B.
+
+TurkishHolidaysTest — yeni/güncel:
+- `isHalfDay` true: 2026-10-28; false: 2026-10-27, 2026-10-29.
+- `isHoliday(2026-10-28)` false (değişmedi).
+- 16. `isBlocked(2026-10-28, false, false, true)` true; `isBlocked(2026-10-28, true, true, false)` false; `isBlocked(2026-11-07, false, true, true)` false; `isBlocked(2026-11-07, true, false, false)` true.
+- 17. `firstOpenDayOnOrAfter(2026-11-07, true, true, true)` = 2026-11-09; `(2026-11-07, false, true, true)` = 2026-11-07; `(2026-11-16, true, true, true)` = 2026-11-16; `(2025-05-18, true, false, false)` = 2025-05-19; `(2025-05-18, true, true, false)` = 2025-05-20.
+- Mevcut `isHoliday` true/false ve `isNonBusinessDay` testleri aynen kalır.
+
+## 10. README.md
+- "Öteleme" anlatımını güncelle: üç bağımsız anahtar (hafta sonu, resmî tatil, yarım gün), kart bazında, hem kesim hem son ödeme için; gün gün kontrol kuralı (her gün yalnızca kartın açık anahtarlarına göre engelli sayılır, engelli olmayan ilk güne inilir) ve örnekler (Cuma tatili hafta sonu kapalıyken Cumartesi'de kalır, açıksa Pazartesiye gider).
+- Tatil listesi: tam gün 7 sabit tarih, yarım gün 28 Ekim; dinî bayramlar ve idari izin köprüleri kapsam dışı.
+- "Varsayımlar": yeni kart varsayılanları (hafta sonu açık, resmî tatil açık, yarım gün kapalı) ve eski kayıtların dönüşümü.
+
+## 11. TESLİM ÖLÇÜTÜ
+- Kart formunda üç ayrı anahtar var, eski tek anahtar yok; varsayılanlar yukarıdaki gibi.
+- `adjustForNonBusinessDays`, `isTriggered`, `isBusinessDay`, `shift`, `firstBusinessDayOnOrAfter` kodda hiçbir yerde geçmiyor.
+- `./gradlew testDebugUnitTest` başarılı (ağ/SDK yoksa atla ve belirt); yeni bağımlılık ve yeni izin yok.
