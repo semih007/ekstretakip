@@ -14,10 +14,14 @@
     <string name="statement_day_format">Kesim günü: %1$d</string>
     <string name="next_statement_format">Sonraki ekstre kesimi: %1$s</string>
     <string name="next_payment_format">Son ödeme tarihi: %1$s</string>
-    <string name="payment_missing">Son ödeme süresi girilmedi.</string>
-    <string name="field_adjust">Hafta sonu ve resmî tatilde ötele</string>
+    <string name="switch_weekend_title">Hafta sonu ötelemesi</string>
+    <string name="switch_weekend_desc">Tarih Cumartesi veya Pazar\'a denk gelirse ileri ötelenir.</string>
+    <string name="switch_holiday_title">Resmî tatil ötelemesi</string>
+    <string name="switch_holiday_desc">Tarih tam gün resmî tatile (1 Ocak, 23 Nisan, 1 Mayıs, 19 Mayıs, 15 Temmuz, 30 Ağustos, 29 Ekim) denk gelirse ileri ötelenir.</string>
+    <string name="switch_half_title">Yarım gün tatil ötelemesi</string>
+    <string name="switch_half_desc">Tarih öğleden sonra tatil olan yarım güne (28 Ekim) denk gelirse ileri ötelenir.</string>
     <string name="field_payment_offset">Son ödeme kaç gün sonra?</string>
-    <string name="err_offset_invalid">Geçerli bir pozitif gün sayısı girin.</string>
+    <string name="err_offset_invalid">1 ile 60 arasında bir gün sayısı girin.</string>
     <string name="calendar_previous">Önceki ay</string>
     <string name="calendar_next">Sonraki ay</string>
     <string name="calendar_statement">Ekstre kesimi</string>

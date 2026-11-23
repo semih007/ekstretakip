@@ -34,11 +34,11 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         cards = updated
     }
 
-    fun addCard(name: String, day: Int, paymentOffset: Int, adjustToBusinessDay: Boolean) =
-        save(cards + Card(UUID.randomUUID().toString(), name.trim(), day, paymentOffset, adjustToBusinessDay))
+    fun addCard(name: String, day: Int, due: Int, weekend: Boolean, holiday: Boolean, halfDay: Boolean) =
+        save(cards + Card(UUID.randomUUID().toString(), name.trim(), day, due, weekend, holiday, halfDay))
 
-    fun updateCard(id: String, name: String, day: Int, paymentOffset: Int, adjustToBusinessDay: Boolean) = save(cards.map {
-        if (it.id == id) Card(id, name.trim(), day, paymentOffset, adjustToBusinessDay) else it
+    fun updateCard(id: String, name: String, day: Int, due: Int, weekend: Boolean, holiday: Boolean, halfDay: Boolean) = save(cards.map {
+        if (it.id == id) Card(id, name.trim(), day, due, weekend, holiday, halfDay) else it
     })
 
     fun deleteCard(id: String) = save(cards.filterNot { it.id == id })

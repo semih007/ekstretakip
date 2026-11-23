@@ -10,7 +10,7 @@ Bugün yapacağınız bir harcama hangi kartın ekstresine daha geç yansır? Ek
 
 1. Sağ üstteki **⋮ → Kartlarım** menüsünü açıp **+** düğmesine dokunun.
 2. Karta tanıyacağınız bir ad verin ve ekstrenin her ay kaçıncı gün kesildiğini girin. **Son ödeme kaç gün sonra?** alanına kesim ile son ödeme arasındaki takvim günü sayısını yazın.
-3. Hafta sonuna veya sabit tarihli bir tatile denk gelen tarihleri ileri almak istiyorsanız bu kart için ötelemeyi açın ve **Kaydet** düğmesine dokunun.
+3. Bu kart için istediğiniz öteleme seçeneklerini belirleyin ve **Kaydet** düğmesine dokunun.
 
 Ana ekrana döndüğünüzde bugünün kart önerisini görürsünüz. Takvimde **Ekstre kesimi** ve **Son ödeme** ayrı renklerle işaretlenir. Bir güne dokunduğunuzda o tarihteki kart adları listelenir. Aylar arasında oklarla geçiş yapabilirsiniz. **Kartlarım** ekranında her kartın yaklaşan tarihlerini görebilir, kartı düzenleyebilir veya silebilirsiniz.
 
@@ -25,13 +25,19 @@ Ana ekrana döndüğünüzde bugünün kart önerisini görürsünüz. Takvimde 
 
 Kesim günü bugünse kalan süre sıfırdır. İki kartın kesimine eşit süre kaldığında ilk eklediğiniz kart seçilir. Seçtiğiniz kesim günü o ayda yoksa uygulama ayın son gününü kullanır. Örneğin ayın 31’inde kesilen bir ekstre için kasımda 30’u esas alınır.
 
-### İş günü ötelemesi ve son ödeme
+### Öteleme ve son ödeme
 
-Öteleme açıksa uygulama önce kesim tarihini hesaplar. Cumartesi, pazar veya kapsamdaki bir tatile denk gelen kesim, onu izleyen ilk iş gününe taşınır. Kart önerisi bu tarih üzerinden yapılır.
+Her kart için üç bağımsız öteleme seçeneği vardır. **Hafta sonu** cumartesi ve pazarı, **resmî tatil** 1 Ocak, 23 Nisan, 1 Mayıs, 19 Mayıs, 15 Temmuz, 30 Ağustos ve 29 Ekim’i, **yarım gün tatil** ise 28 Ekim’i kapsar. Dinî bayramlar ve idari izin köprüleri kapsam dışıdır.
 
-Son ödeme tarihini bulmak için hesaplanan kesim tarihine kartın ödeme süresi eklenir. Öteleme açıksa aynı iş günü kuralı bu tarihe de uygulanır. Örneğin kesim **14 Kasım 2026 Cumartesi** gününe denk gelirse **16 Kasım Pazartesi** gününe taşınır. Ödeme süresi 10 günse takvimde son ödeme **26 Kasım** olarak görünür.
+Uygulama her günü kartın açık seçeneklerine göre kontrol eder. Gün engelliyse ertesi güne geçer ve ilk açık günde durur. Örneğin 29 Ekim 2027 Cuma günkü kesim, resmî tatil ötelemesi açıkken 30 Ekim Cumartesiye taşınır. Hafta sonu ötelemesi de açıksa kesim 1 Kasım Pazartesiye kalır.
 
-Öteleme kapsamındaki sabit tarihler **1 Ocak, 23 Nisan, 1 Mayıs, 19 Mayıs, 15 Temmuz, 30 Ağustos, 28 ve 29 Ekim** günleridir. Uygulama 28 Ekim’i gün bazında öteler.
+Son ödeme için hesaplanan kesim tarihine karttaki ödeme süresi (1–60 takvim günü) eklenir. Aynı üç seçenek bu tarihe de uygulanır. Kart önerisini hesaplanan kesim tarihi belirler.
+
+## Varsayımlar
+
+- Yeni kartlarda hafta sonu ve resmî tatil ötelemesi açık, yarım gün ötelemesi kapalıdır.
+- Eski tek anahtar hafta sonu ve resmî tatil seçeneklerine aktarılır. Yarım gün kapalı başlar. Hiç öteleme kaydı yoksa üç seçenek de kapalıdır. Yeni alanlardan biri varsa eksik olanlar kapalı kabul edilir.
+- Yeni kartta ödeme süresi alanı boş açılır. Kartı kaydetmek için kesimden sonra kaç takvim günü içinde ödeme yapılacağını 1–60 arasında girin.
 
 ## Gizlilik
 
@@ -69,22 +75,16 @@ GitHub Actions, dallara yapılan gönderimlerde ve pull request açıldığında
 
 ## APK imzalama
 
-Yerel derleme için aşağıdaki ortam değişkenlerini ayarlayıp `assembleRelease` görevini çalıştırın. GitHub Actions için karşılık gelen değerleri deponun **Settings → Secrets and variables → Actions** bölümüne ekleyin.
+GitHub Actions her çalıştırmada runner’ın debug anahtarıyla imzalanmış bir release APK üretir. Depoya imzalama secret’ı eklemek gerekmez. Geçici runner’lar farklı anahtarlar oluşturabildiği için CI çıktıları temiz kurulumla test edilebilir.
 
-| Değer | Yerel ortam değişkeni | GitHub Actions secret |
-| --- | --- | --- |
-| Keystore | `KEYSTORE_FILE` (dosya yolu) | `KEYSTORE_BASE64` |
-| Keystore parolası | `KEYSTORE_PASSWORD` | `KEYSTORE_PASSWORD` |
-| Anahtar takma adı | `KEY_ALIAS` | `KEY_ALIAS` |
-| Anahtar parolası | `KEY_PASSWORD` | `KEY_PASSWORD` |
+Kendi anahtarınızla yerel release APK üretmek için aşağıdaki dört ortam değişkenini tanımlayıp `assembleRelease` görevini çalıştırın. Yayımladığınız uygulamaya güncelleme sunarken aynı anahtarı kullanın.
 
-GitHub Actions için keystore dosyasını GNU/Linux’ta Base64 biçimine dönüştürün.
-
-```sh
-base64 -w 0 release.jks
-```
-
-Dört değer birlikte sağlanmadığında release APK kurulum için debug anahtarıyla imzalanır. Dağıttığınız sürüme güncelleme yayımlamak için aynı özel anahtarı kullanın. Keystore’u ve parolaları kaynak depodan ayrı olarak saklayın.
+| Değişken | Değer |
+| --- | --- |
+| `KEYSTORE_FILE` | Keystore dosyasının yolu |
+| `KEYSTORE_PASSWORD` | Keystore parolası |
+| `KEY_ALIAS` | Anahtarın takma adı |
+| `KEY_PASSWORD` | Anahtar parolası |
 
 ## Kullanılan sürümler
 

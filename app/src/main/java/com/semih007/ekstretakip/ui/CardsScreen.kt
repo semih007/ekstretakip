@@ -50,8 +50,7 @@ fun CardsScreen(vm: AppViewModel) {
                                     Text(stringResource(R.string.statement_day_format, card.statementDay))
                                     Text(stringResource(R.string.next_statement_format, statement.format(cardDateFormatter)))
                                     Text(
-                                        if (due == null) stringResource(R.string.payment_missing)
-                                        else stringResource(R.string.next_payment_format, due.format(cardDateFormatter))
+                                        stringResource(R.string.next_payment_format, due.format(cardDateFormatter))
                                     )
                                 }
                             },

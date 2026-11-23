@@ -21,8 +21,10 @@ fun CardFormScreen(vm: AppViewModel, cardId: String?) {
     val card = vm.cards.find { it.id == cardId }
     var name by rememberSaveable(cardId) { mutableStateOf(card?.name.orEmpty()) }
     var day by rememberSaveable(cardId) { mutableStateOf(card?.statementDay?.toString().orEmpty()) }
-    var paymentOffset by rememberSaveable(cardId) { mutableStateOf(card?.paymentOffset?.toString().orEmpty()) }
-    var adjust by rememberSaveable(cardId) { mutableStateOf(card?.adjustToBusinessDay ?: false) }
+    var paymentOffset by rememberSaveable(cardId) { mutableStateOf(card?.dueOffsetDays?.toString().orEmpty()) }
+    var weekend by rememberSaveable(cardId) { mutableStateOf(card?.shiftOnWeekend ?: true) }
+    var holiday by rememberSaveable(cardId) { mutableStateOf(card?.shiftOnHoliday ?: true) }
+    var halfDay by rememberSaveable(cardId) { mutableStateOf(card?.shiftOnHalfDay ?: false) }
     var nameError by rememberSaveable(cardId) { mutableStateOf<Int?>(null) }
     var dayError by rememberSaveable(cardId) { mutableStateOf(false) }
     var offsetError by rememberSaveable(cardId) { mutableStateOf(false) }
@@ -52,15 +54,6 @@ fun CardFormScreen(vm: AppViewModel, cardId: String?) {
                 isError = dayError,
                 supportingText = if (dayError) ({ Text(stringResource(R.string.err_day_invalid)) }) else null
             )
-            Row(
-                modifier = Modifier.fillMaxWidth()
-                    .toggleable(value = adjust, role = Role.Switch, onValueChange = { adjust = it }),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
-                Text(stringResource(R.string.field_adjust), Modifier.weight(1f))
-                Switch(checked = adjust, onCheckedChange = null)
-            }
             OutlinedTextField(
                 value = paymentOffset,
                 onValueChange = {
@@ -74,6 +67,11 @@ fun CardFormScreen(vm: AppViewModel, cardId: String?) {
                 isError = offsetError,
                 supportingText = if (offsetError) ({ Text(stringResource(R.string.err_offset_invalid)) }) else null
             )
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                ShiftOption(R.string.switch_weekend_title, R.string.switch_weekend_desc, weekend) { weekend = it }
+                ShiftOption(R.string.switch_holiday_title, R.string.switch_holiday_desc, holiday) { holiday = it }
+                ShiftOption(R.string.switch_half_title, R.string.switch_half_desc, halfDay) { halfDay = it }
+            }
             Button(
                 modifier = Modifier.fillMaxWidth(),
                 onClick = {
@@ -85,14 +83,30 @@ fun CardFormScreen(vm: AppViewModel, cardId: String?) {
                         else -> null
                     }
                     dayError = number == null || number !in 1..31
-                    offsetError = offset == null || offset < 1
+                    offsetError = offset == null || offset !in 1..60
                     if (nameError == null && !dayError && !offsetError && number != null && offset != null) {
-                        if (cardId == null) vm.addCard(name, number, offset, adjust)
-                        else vm.updateCard(cardId, name, number, offset, adjust)
+                        if (cardId == null) vm.addCard(name, number, offset, weekend, holiday, halfDay)
+                        else vm.updateCard(cardId, name, number, offset, weekend, holiday, halfDay)
                         vm.screen = Screen.Cards
                     }
                 }
             ) { Text(stringResource(R.string.save)) }
         }
+    }
+}
+
+@Composable
+private fun ShiftOption(title: Int, description: Int, checked: Boolean, onChange: (Boolean) -> Unit) {
+    Row(
+        modifier = Modifier.fillMaxWidth().toggleable(value = checked, role = Role.Switch, onValueChange = onChange),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        Column(Modifier.weight(1f)) {
+            Text(stringResource(title))
+            Text(stringResource(description), style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+        Switch(checked = checked, onCheckedChange = null)
     }
 }

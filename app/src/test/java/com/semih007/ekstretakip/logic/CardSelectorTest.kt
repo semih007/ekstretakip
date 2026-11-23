@@ -8,8 +8,8 @@ import org.junit.Assert.assertNull
 import org.junit.Test
 
 class CardSelectorTest {
-    private fun card(name: String, day: Int, offset: Int? = null, adjust: Boolean = false) =
-        Card(name, name, day, offset, adjust)
+    private fun card(name: String, day: Int, offset: Int = 10, adjust: Boolean = false) =
+        Card(name, name, day, offset, adjust, adjust, false)
 
     @Test
     fun twoCardsAcrossNovemberAndYearEnd() {
@@ -102,12 +102,12 @@ class CardSelectorTest {
         assertEquals(2L, CardSelector.daysUntilStatement(a, today))
         assertEquals(1L, CardSelector.daysUntilStatement(b, today))
         assertEquals(a, CardSelector.pickBest(listOf(a, b), today))
-        assertEquals(b, CardSelector.pickBest(listOf(a.copy(adjustToBusinessDay = false), b), today))
+        assertEquals(b, CardSelector.pickBest(listOf(a.copy(shiftOnWeekend = false, shiftOnHoliday = false), b), today))
     }
 
     @Test
     fun datesMoveForwardAcrossConsecutiveHolidaysAndWeekend() {
-        val a = card("A", 28, offset = 5, adjust = true)
+        val a = card("A", 29, offset = 5, adjust = true)
         val statement = LocalDate.parse("2027-11-01")
         val due = LocalDate.parse("2027-11-08")
         assertEquals(Cycle(statement, due), CardSelector.cycleFor(a, YearMonth.of(2027, 10)))
@@ -120,7 +120,7 @@ class CardSelectorTest {
     }
 
     @Test
-    fun markersIncludePaymentsForEarlierStatementsAndSkipMissingOffsets() {
+    fun markersIncludePaymentsForEarlierStatements() {
         val legacy = card("Eski", 1)
         val a = card("A", 4, offset = 60, adjust = true)
         val day = LocalDate.parse("2027-01-04")
@@ -128,6 +128,83 @@ class CardSelectorTest {
         assertEquals(listOf(legacy), markers.statements[LocalDate.parse("2027-01-01")])
         assertEquals(listOf(a), markers.statements[day])
         assertEquals(listOf(a), markers.payments[day])
-        assertNull(CardSelector.nextDueDate(legacy, day))
+        assertEquals(LocalDate.parse("2027-01-11"), CardSelector.nextDueDate(legacy, day))
+    }
+
+    @Test
+    fun holidayAndHalfDayFlagsDoNotBlockSaturday() {
+        val month = YearMonth.parse("2026-11")
+        fun cycle(weekend: Boolean, holiday: Boolean, halfDay: Boolean) =
+            CardSelector.cycleFor(Card("A", "A", 7, 10, weekend, holiday, halfDay), month)
+        assertEquals(LocalDate.parse("2026-11-07"), cycle(false, true, true).statement)
+        assertEquals(LocalDate.parse("2026-11-09"), cycle(true, true, true).statement)
+    }
+
+    @Test
+    fun weekendFlagIndependentlyBlocksSaturday() {
+        val month = YearMonth.parse("2026-11")
+        fun cycle(weekend: Boolean, holiday: Boolean, halfDay: Boolean) =
+            CardSelector.cycleFor(Card("A", "A", 14, 10, weekend, holiday, halfDay), month)
+        assertEquals(LocalDate.parse("2026-11-16"), cycle(true, false, false).statement)
+        assertEquals(LocalDate.parse("2026-11-14"), cycle(false, true, false).statement)
+    }
+
+    @Test
+    fun octoberHalfDayCanRollIntoFullHoliday() {
+        val month = YearMonth.parse("2026-10")
+        fun cycle(weekend: Boolean, holiday: Boolean, halfDay: Boolean) =
+            CardSelector.cycleFor(Card("A", "A", 28, 10, weekend, holiday, halfDay), month)
+        assertEquals(LocalDate.parse("2026-10-28"), cycle(false, false, false).statement)
+        assertEquals(LocalDate.parse("2026-10-28"), cycle(false, true, false).statement)
+        assertEquals(LocalDate.parse("2026-10-29"), cycle(false, false, true).statement)
+        assertEquals(LocalDate.parse("2026-10-30"), cycle(false, true, true).statement)
+    }
+
+    @Test
+    fun fridayHolidayCanStopOnSaturday() {
+        val month = YearMonth.parse("2027-10")
+        fun cycle(weekend: Boolean, holiday: Boolean, halfDay: Boolean) =
+            CardSelector.cycleFor(Card("A", "A", 29, 10, weekend, holiday, halfDay), month)
+        assertEquals(LocalDate.parse("2027-10-30"), cycle(false, true, false).statement)
+        assertEquals(LocalDate.parse("2027-11-01"), cycle(true, true, false).statement)
+    }
+
+    @Test
+    fun sundayCanRollIntoMondayHoliday() {
+        val month = YearMonth.parse("2025-05")
+        fun cycle(weekend: Boolean, holiday: Boolean, halfDay: Boolean) =
+            CardSelector.cycleFor(Card("A", "A", 18, 10, weekend, holiday, halfDay), month)
+        assertEquals(LocalDate.parse("2025-05-18"), cycle(false, false, false).statement)
+        assertEquals(LocalDate.parse("2025-05-19"), cycle(true, false, false).statement)
+        assertEquals(LocalDate.parse("2025-05-20"), cycle(true, true, false).statement)
+    }
+
+    @Test
+    fun paymentOnSaturdayUsesWeekendFlag() {
+        val month = YearMonth.parse("2026-11")
+        fun cycle(weekend: Boolean, holiday: Boolean, halfDay: Boolean) =
+            CardSelector.cycleFor(Card("A", "A", 16, 12, weekend, holiday, halfDay), month)
+        assertEquals(LocalDate.parse("2026-11-28"), cycle(false, true, true).due)
+        assertEquals(LocalDate.parse("2026-11-30"), cycle(true, false, false).due)
+    }
+
+    @Test
+    fun paymentOnHalfDayUsesEnabledFlags() {
+        val month = YearMonth.parse("2026-10")
+        fun cycle(weekend: Boolean, holiday: Boolean, halfDay: Boolean) =
+            CardSelector.cycleFor(Card("A", "A", 19, 9, weekend, holiday, halfDay), month)
+        assertEquals(LocalDate.parse("2026-10-19"), cycle(true, true, true).statement)
+        assertEquals(LocalDate.parse("2026-10-30"), cycle(true, true, true).due)
+        assertEquals(LocalDate.parse("2026-10-29"), cycle(false, false, true).due)
+        assertEquals(LocalDate.parse("2026-10-28"), cycle(false, false, false).due)
+    }
+
+    @Test
+    fun allThreeFlagsCanChangeBestCard() {
+        val a = Card("A", "A", 7, 10, true, true, true)
+        val b = card("B", 8)
+        val today = LocalDate.parse("2026-11-07")
+        assertEquals(a, CardSelector.pickBest(listOf(a, b), today))
+        assertEquals(b, CardSelector.pickBest(listOf(card("A", 7), b), today))
     }
 }
